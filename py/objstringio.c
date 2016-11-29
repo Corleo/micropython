@@ -30,22 +30,16 @@
 
 #include "py/nlr.h"
 #include "py/objstr.h"
+#include "py/objstringio.h"
 #include "py/runtime.h"
 #include "py/stream.h"
 
 #if MICROPY_PY_IO
 
-typedef struct _mp_obj_stringio_t {
-    mp_obj_base_t base;
-    vstr_t *vstr;
-    // StringIO has single pointer used for both reading and writing
-    mp_uint_t pos;
-} mp_obj_stringio_t;
-
 #if MICROPY_CPYTHON_COMPAT
 STATIC void check_stringio_is_open(const mp_obj_stringio_t *o) {
     if (o->vstr == NULL) {
-        nlr_raise(mp_obj_new_exception_msg(&mp_type_ValueError, "I/O operation on closed file"));
+        mp_raise_msg(&mp_type_ValueError, "I/O operation on closed file");
     }
 }
 #else
@@ -75,12 +69,17 @@ STATIC mp_uint_t stringio_write(mp_obj_t o_in, const void *buf, mp_uint_t size, 
     (void)errcode;
     mp_obj_stringio_t *o = MP_OBJ_TO_PTR(o_in);
     check_stringio_is_open(o);
-    mp_uint_t remaining = o->vstr->alloc - o->pos;
-    if (size > remaining) {
+    mp_int_t remaining = o->vstr->alloc - o->pos;
+    mp_uint_t org_len = o->vstr->len;
+    if ((mp_int_t)size > remaining) {
         // Take all what's already allocated...
         o->vstr->len = o->vstr->alloc;
         // ... and add more
         vstr_add_len(o->vstr, size - remaining);
+    }
+    // If there was a seek past EOF, clear the hole
+    if (o->pos > org_len) {
+        memset(o->vstr->buf + org_len, 0, o->pos - org_len);
     }
     memcpy(o->vstr->buf + o->pos, buf, size);
     o->pos += size;
@@ -88,6 +87,33 @@ STATIC mp_uint_t stringio_write(mp_obj_t o_in, const void *buf, mp_uint_t size, 
         o->vstr->len = o->pos;
     }
     return size;
+}
+
+STATIC mp_uint_t stringio_ioctl(mp_obj_t o_in, mp_uint_t request, uintptr_t arg, int *errcode) {
+    (void)errcode;
+    mp_obj_stringio_t *o = MP_OBJ_TO_PTR(o_in);
+    switch (request) {
+        case MP_STREAM_SEEK: {
+            struct mp_stream_seek_t *s = (struct mp_stream_seek_t*)arg;
+            mp_uint_t ref = 0;
+            switch (s->whence) {
+                case 1: // SEEK_CUR
+                    ref = o->pos;
+                    break;
+                case 2: // SEEK_END
+                    ref = o->vstr->len;
+                    break;
+            }
+            o->pos = ref + s->offset;
+            s->offset = o->pos;
+            return 0;
+        }
+        case MP_STREAM_FLUSH:
+            return 0;
+        default:
+            *errcode = MP_EINVAL;
+            return MP_STREAM_ERROR;
+    }
 }
 
 #define STREAM_TO_CONTENT_TYPE(o) (((o)->base.type == &mp_type_stringio) ? &mp_type_str : &mp_type_bytes)
@@ -124,7 +150,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(stringio___exit___obj, 4, 4, stringio
 STATIC mp_obj_stringio_t *stringio_new(const mp_obj_type_t *type) {
     mp_obj_stringio_t *o = m_new_obj(mp_obj_stringio_t);
     o->base.type = type;
-    o->vstr = vstr_new();
+    o->vstr = vstr_new(16);
     o->pos = 0;
     return o;
 }
@@ -145,9 +171,11 @@ STATIC mp_obj_t stringio_make_new(const mp_obj_type_t *type_in, size_t n_args, s
 
 STATIC const mp_rom_map_elem_t stringio_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&mp_stream_read_obj) },
-    { MP_ROM_QSTR(MP_QSTR_readall), MP_ROM_PTR(&mp_stream_readall_obj) },
+    { MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&mp_stream_readinto_obj) },
     { MP_ROM_QSTR(MP_QSTR_readline), MP_ROM_PTR(&mp_stream_unbuffered_readline_obj) },
     { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&mp_stream_write_obj) },
+    { MP_ROM_QSTR(MP_QSTR_seek), MP_ROM_PTR(&mp_stream_seek_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flush), MP_ROM_PTR(&mp_stream_flush_obj) },
     { MP_ROM_QSTR(MP_QSTR_close), MP_ROM_PTR(&stringio_close_obj) },
     { MP_ROM_QSTR(MP_QSTR_getvalue), MP_ROM_PTR(&stringio_getvalue_obj) },
     { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&mp_identity_obj) },
@@ -159,12 +187,14 @@ STATIC MP_DEFINE_CONST_DICT(stringio_locals_dict, stringio_locals_dict_table);
 STATIC const mp_stream_p_t stringio_stream_p = {
     .read = stringio_read,
     .write = stringio_write,
+    .ioctl = stringio_ioctl,
     .is_text = true,
 };
 
 STATIC const mp_stream_p_t bytesio_stream_p = {
     .read = stringio_read,
     .write = stringio_write,
+    .ioctl = stringio_ioctl,
 };
 
 const mp_obj_type_t mp_type_stringio = {
@@ -174,7 +204,7 @@ const mp_obj_type_t mp_type_stringio = {
     .make_new = stringio_make_new,
     .getiter = mp_identity,
     .iternext = mp_stream_unbuffered_iter,
-    .stream_p = &stringio_stream_p,
+    .protocol = &stringio_stream_p,
     .locals_dict = (mp_obj_dict_t*)&stringio_locals_dict,
 };
 
@@ -186,7 +216,7 @@ const mp_obj_type_t mp_type_bytesio = {
     .make_new = stringio_make_new,
     .getiter = mp_identity,
     .iternext = mp_stream_unbuffered_iter,
-    .stream_p = &bytesio_stream_p,
+    .protocol = &bytesio_stream_p,
     .locals_dict = (mp_obj_dict_t*)&stringio_locals_dict,
 };
 #endif

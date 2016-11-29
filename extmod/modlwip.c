@@ -239,7 +239,7 @@ typedef struct _lwip_socket_obj_t {
     byte peer[4];
     mp_uint_t peer_port;
     mp_uint_t timeout;
-    uint16_t leftover_count;
+    uint16_t recv_offset;
 
     uint8_t domain;
     uint8_t type;
@@ -354,11 +354,17 @@ STATIC err_t _lwip_tcp_recv(void *arg, struct tcp_pcb *tcpb, struct pbuf *p, err
         socket->state = STATE_PEER_CLOSED;
         exec_user_callback(socket);
         return ERR_OK;
-    } else if (socket->incoming.pbuf != NULL) {
-        // No room in the inn, let LWIP know it's still responsible for delivery later
-        return ERR_BUF;
     }
-    socket->incoming.pbuf = p;
+
+    if (socket->incoming.pbuf == NULL) {
+        socket->incoming.pbuf = p;
+    } else {
+        #ifdef SOCKET_SINGLE_PBUF
+        return ERR_BUF;
+        #else
+        pbuf_cat(socket->incoming.pbuf, p);
+        #endif
+    }
 
     exec_user_callback(socket);
 
@@ -536,22 +542,28 @@ STATIC mp_uint_t lwip_tcp_receive(lwip_socket_obj_t *socket, byte *buf, mp_uint_
 
     struct pbuf *p = socket->incoming.pbuf;
 
-    if (socket->leftover_count == 0) {
-        socket->leftover_count = p->tot_len;
+    mp_uint_t remaining = p->len - socket->recv_offset;
+    if (len > remaining) {
+        len = remaining;
     }
 
-    u16_t result = pbuf_copy_partial(p, buf, ((socket->leftover_count >= len) ? len : socket->leftover_count), (p->tot_len - socket->leftover_count));
-    if (socket->leftover_count > len) {
-        // More left over...
-        socket->leftover_count -= len;
-    } else {
+    memcpy(buf, (byte*)p->payload + socket->recv_offset, len);
+
+    remaining -= len;
+    if (remaining == 0) {
+        socket->incoming.pbuf = p->next;
+        // If we don't ref here, free() will free the entire chain,
+        // if we ref, it does what we need: frees 1st buf, and decrements
+        // next buf's refcount back to 1.
+        pbuf_ref(p->next);
         pbuf_free(p);
-        socket->incoming.pbuf = NULL;
-        socket->leftover_count = 0;
+        socket->recv_offset = 0;
+    } else {
+        socket->recv_offset += len;
     }
+    tcp_recved(socket->pcb.tcp, len);
 
-    tcp_recved(socket->pcb.tcp, result);
-    return (mp_uint_t) result;
+    return len;
 }
 
 /*******************************************************************************/
@@ -561,8 +573,8 @@ STATIC const mp_obj_type_t lwip_socket_type;
 
 STATIC void lwip_socket_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     lwip_socket_obj_t *self = self_in;
-    mp_printf(print, "<socket state=%d timeout=%d incoming=%p remaining=%d>", self->state, self->timeout,
-        self->incoming.pbuf, self->leftover_count);
+    mp_printf(print, "<socket state=%d timeout=%d incoming=%p off=%d>", self->state, self->timeout,
+        self->incoming.pbuf, self->recv_offset);
 }
 
 // FIXME: Only supports two arguments at present
@@ -586,11 +598,11 @@ STATIC mp_obj_t lwip_socket_make_new(const mp_obj_type_t *type, mp_uint_t n_args
         case MOD_NETWORK_SOCK_STREAM: socket->pcb.tcp = tcp_new(); break;
         case MOD_NETWORK_SOCK_DGRAM: socket->pcb.udp = udp_new(); break;
         //case MOD_NETWORK_SOCK_RAW: socket->pcb.raw = raw_new(); break;
-        default: nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EINVAL)));
+        default: mp_raise_OSError(MP_EINVAL);
     }
 
     if (socket->pcb.tcp == NULL) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOMEM)));
+        mp_raise_OSError(MP_ENOMEM);
     }
 
     switch (socket->type) {
@@ -612,7 +624,7 @@ STATIC mp_obj_t lwip_socket_make_new(const mp_obj_type_t *type, mp_uint_t n_args
     socket->incoming.pbuf = NULL;
     socket->timeout = -1;
     socket->state = STATE_NEW;
-    socket->leftover_count = 0;
+    socket->recv_offset = 0;
     return socket;
 }
 
@@ -674,7 +686,7 @@ STATIC mp_obj_t lwip_socket_bind(mp_obj_t self_in, mp_obj_t addr_in) {
     }
 
     if (err != ERR_OK) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(error_lookup_table[-err])));
+        mp_raise_OSError(error_lookup_table[-err]);
     }
 
     return mp_const_none;
@@ -686,15 +698,15 @@ STATIC mp_obj_t lwip_socket_listen(mp_obj_t self_in, mp_obj_t backlog_in) {
     mp_int_t backlog = mp_obj_get_int(backlog_in);
 
     if (socket->pcb.tcp == NULL) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EBADF)));
+        mp_raise_OSError(MP_EBADF);
     }
     if (socket->type != MOD_NETWORK_SOCK_STREAM) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EOPNOTSUPP)));
+        mp_raise_OSError(MP_EOPNOTSUPP);
     }
 
     struct tcp_pcb *new_pcb = tcp_listen_with_backlog(socket->pcb.tcp, (u8_t)backlog);
     if (new_pcb == NULL) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOMEM)));
+        mp_raise_OSError(MP_ENOMEM);
     }
     socket->pcb.tcp = new_pcb;
     tcp_accept(new_pcb, _lwip_tcp_accept);
@@ -707,15 +719,15 @@ STATIC mp_obj_t lwip_socket_accept(mp_obj_t self_in) {
     lwip_socket_obj_t *socket = self_in;
 
     if (socket->pcb.tcp == NULL) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EBADF)));
+        mp_raise_OSError(MP_EBADF);
     }
     if (socket->type != MOD_NETWORK_SOCK_STREAM) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EOPNOTSUPP)));
+        mp_raise_OSError(MP_EOPNOTSUPP);
     }
     // I need to do this because "tcp_accepted", later, is a macro.
     struct tcp_pcb *listener = socket->pcb.tcp;
     if (listener->state != LISTEN) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EINVAL)));
+        mp_raise_OSError(MP_EINVAL);
     }
 
     // accept incoming connection
@@ -726,7 +738,7 @@ STATIC mp_obj_t lwip_socket_accept(mp_obj_t self_in) {
                 if (socket->incoming.connection != NULL) break;
             }
             if (socket->incoming.connection == NULL) {
-                nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ETIMEDOUT)));
+                mp_raise_OSError(MP_ETIMEDOUT);
             }
         } else {
             while (socket->incoming.connection == NULL) {
@@ -749,7 +761,7 @@ STATIC mp_obj_t lwip_socket_accept(mp_obj_t self_in) {
     socket2->incoming.pbuf = NULL;
     socket2->timeout = socket->timeout;
     socket2->state = STATE_CONNECTED;
-    socket2->leftover_count = 0;
+    socket2->recv_offset = 0;
     socket2->callback = MP_OBJ_NULL;
     tcp_arg(socket2->pcb.tcp, (void*)socket2);
     tcp_err(socket2->pcb.tcp, _lwip_tcp_error);
@@ -773,7 +785,7 @@ STATIC mp_obj_t lwip_socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
     lwip_socket_obj_t *socket = self_in;
 
     if (socket->pcb.tcp == NULL) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EBADF)));
+        mp_raise_OSError(MP_EBADF);
     }
 
     // get address
@@ -788,9 +800,9 @@ STATIC mp_obj_t lwip_socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
         case MOD_NETWORK_SOCK_STREAM: {
             if (socket->state != STATE_NEW) {
                 if (socket->state == STATE_CONNECTED) {
-                    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EALREADY)));
+                    mp_raise_OSError(MP_EALREADY);
                 } else {
-                    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EINPROGRESS)));
+                    mp_raise_OSError(MP_EINPROGRESS);
                 }
             }
             // Register our recieve callback.
@@ -799,7 +811,7 @@ STATIC mp_obj_t lwip_socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
             err = tcp_connect(socket->pcb.tcp, &dest, port, _lwip_tcp_connected);
             if (err != ERR_OK) {
                 socket->state = STATE_NEW;
-                nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(error_lookup_table[-err])));
+                mp_raise_OSError(error_lookup_table[-err]);
             }
             socket->peer_port = (mp_uint_t)port;
             memcpy(socket->peer, &dest, sizeof(socket->peer));
@@ -810,7 +822,7 @@ STATIC mp_obj_t lwip_socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
                     if (socket->state != STATE_CONNECTING) break;
                 }
                 if (socket->state == STATE_CONNECTING) {
-                    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ETIMEDOUT)));
+                    mp_raise_OSError(MP_ETIMEDOUT);
                 }
             } else {
                 while (socket->state == STATE_CONNECTING) {
@@ -831,7 +843,7 @@ STATIC mp_obj_t lwip_socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
     }
 
     if (err != ERR_OK) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(error_lookup_table[-err])));
+        mp_raise_OSError(error_lookup_table[-err]);
     }
 
     return mp_const_none;
@@ -843,7 +855,7 @@ STATIC void lwip_socket_check_connected(lwip_socket_obj_t *socket) {
         // not connected
         int _errno = error_lookup_table[-socket->state];
         socket->state = _ERR_BADF;
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+        mp_raise_OSError(_errno);
     }
 }
 
@@ -868,7 +880,7 @@ STATIC mp_obj_t lwip_socket_send(mp_obj_t self_in, mp_obj_t buf_in) {
         }
     }
     if (ret == -1) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+        mp_raise_OSError(_errno);
     }
 
     return mp_obj_new_int_from_uint(ret);
@@ -897,7 +909,7 @@ STATIC mp_obj_t lwip_socket_recv(mp_obj_t self_in, mp_obj_t len_in) {
         }
     }
     if (ret == -1) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+        mp_raise_OSError(_errno);
     }
 
     if (ret == 0) {
@@ -932,7 +944,7 @@ STATIC mp_obj_t lwip_socket_sendto(mp_obj_t self_in, mp_obj_t data_in, mp_obj_t 
         }
     }
     if (ret == -1) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+        mp_raise_OSError(_errno);
     }
 
     return mp_obj_new_int_from_uint(ret);
@@ -965,7 +977,7 @@ STATIC mp_obj_t lwip_socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
         }
     }
     if (ret == -1) {
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+        mp_raise_OSError(_errno);
     }
 
     mp_obj_t tuple[2];
@@ -998,7 +1010,7 @@ STATIC mp_obj_t lwip_socket_sendall(mp_obj_t self_in, mp_obj_t buf_in) {
                 // most useful behavior is: check whether we will be able to send all of input
                 // data without EAGAIN, and if won't be, raise it without sending any.
                 if (bufinfo.len > tcp_sndbuf(socket->pcb.tcp)) {
-                    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EAGAIN)));
+                    mp_raise_OSError(MP_EAGAIN);
                 }
             }
             // TODO: In CPython3.5, socket timeout should apply to the
@@ -1006,7 +1018,7 @@ STATIC mp_obj_t lwip_socket_sendall(mp_obj_t self_in, mp_obj_t buf_in) {
             while (bufinfo.len != 0) {
                 ret = lwip_tcp_send(socket, bufinfo.buf, bufinfo.len, &_errno);
                 if (ret == -1) {
-                    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(_errno)));
+                    mp_raise_OSError(_errno);
                 }
                 bufinfo.len -= ret;
                 bufinfo.buf = (char*)bufinfo.buf + ret;
@@ -1148,7 +1160,7 @@ STATIC const mp_obj_type_t lwip_socket_type = {
     .name = MP_QSTR_socket,
     .print = lwip_socket_print,
     .make_new = lwip_socket_make_new,
-    .stream_p = &lwip_socket_stream_p,
+    .protocol = &lwip_socket_stream_p,
     .locals_dict = (mp_obj_t)&lwip_socket_locals_dict,
 };
 
@@ -1247,7 +1259,7 @@ STATIC mp_obj_t lwip_getaddrinfo(mp_obj_t host_in, mp_obj_t port_in) {
     if (state.status < 0) {
         // TODO: CPython raises gaierror, we raise with native lwIP negative error
         // values, to differentiate from normal errno's at least in such way.
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(state.status)));
+        mp_raise_OSError(state.status);
     }
 
     mp_obj_tuple_t *tuple = mp_obj_new_tuple(5, NULL);
@@ -1297,7 +1309,6 @@ STATIC MP_DEFINE_CONST_DICT(mp_module_lwip_globals, mp_module_lwip_globals_table
 
 const mp_obj_module_t mp_module_lwip = {
     .base = { &mp_type_module },
-    .name = MP_QSTR_lwip,
     .globals = (mp_obj_dict_t*)&mp_module_lwip_globals,
 };
 

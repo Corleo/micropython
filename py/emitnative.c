@@ -91,24 +91,11 @@
 #define REG_LOCAL_3 ASM_X64_REG_R13
 #define REG_LOCAL_NUM (3)
 
-#define ASM_PASS_COMPUTE    ASM_X64_PASS_COMPUTE
-#define ASM_PASS_EMIT       ASM_X64_PASS_EMIT
-
 #define ASM_T               asm_x64_t
-#define ASM_NEW             asm_x64_new
-#define ASM_FREE            asm_x64_free
-#define ASM_GET_CODE        asm_x64_get_code
-#define ASM_GET_CODE_POS    asm_x64_get_code_pos
-#define ASM_GET_CODE_SIZE   asm_x64_get_code_size
-#define ASM_START_PASS      asm_x64_start_pass
 #define ASM_END_PASS        asm_x64_end_pass
 #define ASM_ENTRY           asm_x64_entry
 #define ASM_EXIT            asm_x64_exit
 
-#define ASM_ALIGN           asm_x64_align
-#define ASM_DATA            asm_x64_data
-
-#define ASM_LABEL_ASSIGN    asm_x64_label_assign
 #define ASM_JUMP            asm_x64_jmp_label
 #define ASM_JUMP_IF_REG_ZERO(as, reg, label) \
     do { \
@@ -236,24 +223,11 @@ STATIC byte mp_f_n_args[MP_F_NUMBER_OF] = {
 #define REG_LOCAL_3 ASM_X86_REG_EDI
 #define REG_LOCAL_NUM (3)
 
-#define ASM_PASS_COMPUTE    ASM_X86_PASS_COMPUTE
-#define ASM_PASS_EMIT       ASM_X86_PASS_EMIT
-
 #define ASM_T               asm_x86_t
-#define ASM_NEW             asm_x86_new
-#define ASM_FREE            asm_x86_free
-#define ASM_GET_CODE        asm_x86_get_code
-#define ASM_GET_CODE_POS    asm_x86_get_code_pos
-#define ASM_GET_CODE_SIZE   asm_x86_get_code_size
-#define ASM_START_PASS      asm_x86_start_pass
 #define ASM_END_PASS        asm_x86_end_pass
 #define ASM_ENTRY           asm_x86_entry
 #define ASM_EXIT            asm_x86_exit
 
-#define ASM_ALIGN           asm_x86_align
-#define ASM_DATA            asm_x86_data
-
-#define ASM_LABEL_ASSIGN    asm_x86_label_assign
 #define ASM_JUMP            asm_x86_jmp_label
 #define ASM_JUMP_IF_REG_ZERO(as, reg, label) \
     do { \
@@ -331,24 +305,11 @@ STATIC byte mp_f_n_args[MP_F_NUMBER_OF] = {
 #define REG_LOCAL_3 ASM_THUMB_REG_R6
 #define REG_LOCAL_NUM (3)
 
-#define ASM_PASS_COMPUTE    ASM_THUMB_PASS_COMPUTE
-#define ASM_PASS_EMIT       ASM_THUMB_PASS_EMIT
-
 #define ASM_T               asm_thumb_t
-#define ASM_NEW             asm_thumb_new
-#define ASM_FREE            asm_thumb_free
-#define ASM_GET_CODE        asm_thumb_get_code
-#define ASM_GET_CODE_POS    asm_thumb_get_code_pos
-#define ASM_GET_CODE_SIZE   asm_thumb_get_code_size
-#define ASM_START_PASS      asm_thumb_start_pass
 #define ASM_END_PASS        asm_thumb_end_pass
 #define ASM_ENTRY           asm_thumb_entry
 #define ASM_EXIT            asm_thumb_exit
 
-#define ASM_ALIGN           asm_thumb_align
-#define ASM_DATA            asm_thumb_data
-
-#define ASM_LABEL_ASSIGN    asm_thumb_label_assign
 #define ASM_JUMP            asm_thumb_b_label
 #define ASM_JUMP_IF_REG_ZERO(as, reg, label) \
     do { \
@@ -425,24 +386,11 @@ STATIC byte mp_f_n_args[MP_F_NUMBER_OF] = {
 #define REG_LOCAL_3 ASM_ARM_REG_R6
 #define REG_LOCAL_NUM (3)
 
-#define ASM_PASS_COMPUTE    ASM_ARM_PASS_COMPUTE
-#define ASM_PASS_EMIT       ASM_ARM_PASS_EMIT
-
 #define ASM_T               asm_arm_t
-#define ASM_NEW             asm_arm_new
-#define ASM_FREE            asm_arm_free
-#define ASM_GET_CODE        asm_arm_get_code
-#define ASM_GET_CODE_POS    asm_arm_get_code_pos
-#define ASM_GET_CODE_SIZE   asm_arm_get_code_size
-#define ASM_START_PASS      asm_arm_start_pass
 #define ASM_END_PASS        asm_arm_end_pass
 #define ASM_ENTRY           asm_arm_entry
 #define ASM_EXIT            asm_arm_exit
 
-#define ASM_ALIGN           asm_arm_align
-#define ASM_DATA            asm_arm_data
-
-#define ASM_LABEL_ASSIGN    asm_arm_label_assign
 #define ASM_JUMP            asm_arm_b_label
 #define ASM_JUMP_IF_REG_ZERO(as, reg, label) \
     do { \
@@ -582,12 +530,14 @@ struct _emit_t {
 emit_t *EXPORT_FUN(new)(mp_obj_t *error_slot, mp_uint_t max_num_labels) {
     emit_t *emit = m_new0(emit_t, 1);
     emit->error_slot = error_slot;
-    emit->as = ASM_NEW(max_num_labels);
+    emit->as = m_new0(ASM_T, 1);
+    mp_asm_base_init(&emit->as->base, max_num_labels);
     return emit;
 }
 
 void EXPORT_FUN(free)(emit_t *emit) {
-    ASM_FREE(emit->as, false);
+    mp_asm_base_deinit(&emit->as->base, false);
+    m_del_obj(ASM_T, emit->as);
     m_del(vtype_kind_t, emit->local_vtype, emit->local_vtype_alloc);
     m_del(stack_info_t, emit->stack_info, emit->stack_info_alloc);
     m_del_obj(emit_t, emit);
@@ -628,7 +578,7 @@ STATIC void emit_post_push_reg(emit_t *emit, vtype_kind_t vtype, int reg);
 STATIC void emit_native_load_fast(emit_t *emit, qstr qst, mp_uint_t local_num);
 STATIC void emit_native_store_fast(emit_t *emit, qstr qst, mp_uint_t local_num);
 
-#define STATE_START (sizeof(mp_code_state) / sizeof(mp_uint_t))
+#define STATE_START (sizeof(mp_code_state_t) / sizeof(mp_uint_t))
 
 STATIC void emit_native_start_pass(emit_t *emit, pass_kind_t pass, scope_t *scope) {
     DEBUG_printf("start_pass(pass=%u, scope=%p)\n", pass, scope);
@@ -679,7 +629,7 @@ STATIC void emit_native_start_pass(emit_t *emit, pass_kind_t pass, scope_t *scop
         emit->stack_info[i].vtype = VTYPE_UNBOUND;
     }
 
-    ASM_START_PASS(emit->as, pass == MP_PASS_EMIT ? ASM_PASS_EMIT : ASM_PASS_COMPUTE);
+    mp_asm_base_start_pass(&emit->as->base, pass == MP_PASS_EMIT ? MP_ASM_PASS_EMIT : MP_ASM_PASS_COMPUTE);
 
     // generate code for entry to function
 
@@ -775,10 +725,10 @@ STATIC void emit_native_start_pass(emit_t *emit, pass_kind_t pass, scope_t *scop
 
         // set code_state.ip (offset from start of this function to prelude info)
         // XXX this encoding may change size
-        ASM_MOV_IMM_TO_LOCAL_USING(emit->as, emit->prelude_offset, offsetof(mp_code_state, ip) / sizeof(mp_uint_t), REG_ARG_1);
+        ASM_MOV_IMM_TO_LOCAL_USING(emit->as, emit->prelude_offset, offsetof(mp_code_state_t, ip) / sizeof(mp_uint_t), REG_ARG_1);
 
         // set code_state.n_state
-        ASM_MOV_IMM_TO_LOCAL_USING(emit->as, emit->n_state, offsetof(mp_code_state, n_state) / sizeof(mp_uint_t), REG_ARG_1);
+        ASM_MOV_IMM_TO_LOCAL_USING(emit->as, emit->n_state, offsetof(mp_code_state_t, n_state) / sizeof(mp_uint_t), REG_ARG_1);
 
         // put address of code_state into first arg
         ASM_MOV_LOCAL_ADDR_TO_REG(emit->as, 0, REG_ARG_1);
@@ -824,21 +774,21 @@ STATIC void emit_native_end_pass(emit_t *emit) {
     }
 
     if (!emit->do_viper_types) {
-        emit->prelude_offset = ASM_GET_CODE_POS(emit->as);
-        ASM_DATA(emit->as, 1, emit->scope->scope_flags);
-        ASM_DATA(emit->as, 1, emit->scope->num_pos_args);
-        ASM_DATA(emit->as, 1, emit->scope->num_kwonly_args);
-        ASM_DATA(emit->as, 1, emit->scope->num_def_pos_args);
+        emit->prelude_offset = mp_asm_base_get_code_pos(&emit->as->base);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->scope_flags);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->num_pos_args);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->num_kwonly_args);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->num_def_pos_args);
 
         // write code info
         #if MICROPY_PERSISTENT_CODE
-        ASM_DATA(emit->as, 1, 5);
-        ASM_DATA(emit->as, 1, emit->scope->simple_name);
-        ASM_DATA(emit->as, 1, emit->scope->simple_name >> 8);
-        ASM_DATA(emit->as, 1, emit->scope->source_file);
-        ASM_DATA(emit->as, 1, emit->scope->source_file >> 8);
+        mp_asm_base_data(&emit->as->base, 1, 5);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->simple_name);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->simple_name >> 8);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->source_file);
+        mp_asm_base_data(&emit->as->base, 1, emit->scope->source_file >> 8);
         #else
-        ASM_DATA(emit->as, 1, 1);
+        mp_asm_base_data(&emit->as->base, 1, 1);
         #endif
 
         // bytecode prelude: initialise closed over variables
@@ -846,13 +796,13 @@ STATIC void emit_native_end_pass(emit_t *emit) {
             id_info_t *id = &emit->scope->id_info[i];
             if (id->kind == ID_INFO_KIND_CELL) {
                 assert(id->local_num < 255);
-                ASM_DATA(emit->as, 1, id->local_num); // write the local which should be converted to a cell
+                mp_asm_base_data(&emit->as->base, 1, id->local_num); // write the local which should be converted to a cell
             }
         }
-        ASM_DATA(emit->as, 1, 255); // end of list sentinel
+        mp_asm_base_data(&emit->as->base, 1, 255); // end of list sentinel
 
-        ASM_ALIGN(emit->as, ASM_WORD_SIZE);
-        emit->const_table_offset = ASM_GET_CODE_POS(emit->as);
+        mp_asm_base_align(&emit->as->base, ASM_WORD_SIZE);
+        emit->const_table_offset = mp_asm_base_get_code_pos(&emit->as->base);
 
         // write argument names as qstr objects
         // see comment in corresponding part of emitbc.c about the logic here
@@ -865,7 +815,7 @@ STATIC void emit_native_end_pass(emit_t *emit) {
                     break;
                 }
             }
-            ASM_DATA(emit->as, ASM_WORD_SIZE, (mp_uint_t)MP_OBJ_NEW_QSTR(qst));
+            mp_asm_base_data(&emit->as->base, ASM_WORD_SIZE, (mp_uint_t)MP_OBJ_NEW_QSTR(qst));
         }
 
     }
@@ -878,8 +828,8 @@ STATIC void emit_native_end_pass(emit_t *emit) {
     }
 
     if (emit->pass == MP_PASS_EMIT) {
-        void *f = ASM_GET_CODE(emit->as);
-        mp_uint_t f_len = ASM_GET_CODE_SIZE(emit->as);
+        void *f = mp_asm_base_get_code(&emit->as->base);
+        mp_uint_t f_len = mp_asm_base_get_code_size(&emit->as->base);
 
         // compute type signature
         // note that the lower 4 bits of a vtype are tho correct MP_NATIVE_TYPE_xxx
@@ -1255,17 +1205,41 @@ STATIC void emit_native_label_assign(emit_t *emit, mp_uint_t l) {
     emit_native_pre(emit);
     // need to commit stack because we can jump here from elsewhere
     need_stack_settled(emit);
-    ASM_LABEL_ASSIGN(emit->as, l);
+    mp_asm_base_label_assign(&emit->as->base, l);
     emit_post(emit);
 }
 
 STATIC void emit_native_import_name(emit_t *emit, qstr qst) {
     DEBUG_printf("import_name %s\n", qstr_str(qst));
-    vtype_kind_t vtype_fromlist;
-    vtype_kind_t vtype_level;
-    emit_pre_pop_reg_reg(emit, &vtype_fromlist, REG_ARG_2, &vtype_level, REG_ARG_3); // arg2 = fromlist, arg3 = level
-    assert(vtype_fromlist == VTYPE_PYOBJ);
-    assert(vtype_level == VTYPE_PYOBJ);
+
+    // get arguments from stack: arg2 = fromlist, arg3 = level
+    // if using viper types these arguments must be converted to proper objects
+    if (emit->do_viper_types) {
+        // fromlist should be None or a tuple
+        stack_info_t *top = peek_stack(emit, 0);
+        if (top->vtype == VTYPE_PTR_NONE) {
+            emit_pre_pop_discard(emit);
+            ASM_MOV_IMM_TO_REG(emit->as, (mp_uint_t)mp_const_none, REG_ARG_2);
+        } else {
+            vtype_kind_t vtype_fromlist;
+            emit_pre_pop_reg(emit, &vtype_fromlist, REG_ARG_2);
+            assert(vtype_fromlist == VTYPE_PYOBJ);
+        }
+
+        // level argument should be an immediate integer
+        top = peek_stack(emit, 0);
+        assert(top->vtype == VTYPE_INT && top->kind == STACK_IMM);
+        ASM_MOV_IMM_TO_REG(emit->as, (mp_uint_t)MP_OBJ_NEW_SMALL_INT(top->data.u_imm), REG_ARG_3);
+        emit_pre_pop_discard(emit);
+
+    } else {
+        vtype_kind_t vtype_fromlist;
+        vtype_kind_t vtype_level;
+        emit_pre_pop_reg_reg(emit, &vtype_fromlist, REG_ARG_2, &vtype_level, REG_ARG_3);
+        assert(vtype_fromlist == VTYPE_PYOBJ);
+        assert(vtype_level == VTYPE_PYOBJ);
+    }
+
     emit_call_with_imm_arg(emit, MP_F_IMPORT_NAME, qst, REG_ARG_1); // arg1 = import name
     emit_post_push_reg(emit, VTYPE_PYOBJ, REG_RET);
 }
@@ -2344,17 +2318,6 @@ STATIC void emit_native_build_list(emit_t *emit, mp_uint_t n_args) {
     emit_post_push_reg(emit, VTYPE_PYOBJ, REG_RET); // new list
 }
 
-STATIC void emit_native_list_append(emit_t *emit, mp_uint_t list_index) {
-    // only used in list comprehension
-    vtype_kind_t vtype_list, vtype_item;
-    emit_pre_pop_reg(emit, &vtype_item, REG_ARG_2);
-    emit_access_stack(emit, list_index, &vtype_list, REG_ARG_1);
-    assert(vtype_list == VTYPE_PYOBJ);
-    assert(vtype_item == VTYPE_PYOBJ);
-    emit_call(emit, MP_F_LIST_APPEND);
-    emit_post(emit);
-}
-
 STATIC void emit_native_build_map(emit_t *emit, mp_uint_t n_args) {
     emit_native_pre(emit);
     emit_call_with_imm_arg(emit, MP_F_BUILD_MAP, n_args, REG_ARG_1);
@@ -2371,35 +2334,12 @@ STATIC void emit_native_store_map(emit_t *emit) {
     emit_post_push_reg(emit, VTYPE_PYOBJ, REG_RET); // map
 }
 
-STATIC void emit_native_map_add(emit_t *emit, mp_uint_t map_index) {
-    // only used in list comprehension
-    vtype_kind_t vtype_map, vtype_key, vtype_value;
-    emit_pre_pop_reg_reg(emit, &vtype_key, REG_ARG_2, &vtype_value, REG_ARG_3);
-    emit_access_stack(emit, map_index, &vtype_map, REG_ARG_1);
-    assert(vtype_map == VTYPE_PYOBJ);
-    assert(vtype_key == VTYPE_PYOBJ);
-    assert(vtype_value == VTYPE_PYOBJ);
-    emit_call(emit, MP_F_STORE_MAP);
-    emit_post(emit);
-}
-
 #if MICROPY_PY_BUILTINS_SET
 STATIC void emit_native_build_set(emit_t *emit, mp_uint_t n_args) {
     emit_native_pre(emit);
     emit_get_stack_pointer_to_reg_for_pop(emit, REG_ARG_2, n_args); // pointer to items
     emit_call_with_imm_arg(emit, MP_F_BUILD_SET, n_args, REG_ARG_1);
     emit_post_push_reg(emit, VTYPE_PYOBJ, REG_RET); // new set
-}
-
-STATIC void emit_native_set_add(emit_t *emit, mp_uint_t set_index) {
-    // only used in set comprehension
-    vtype_kind_t vtype_set, vtype_item;
-    emit_pre_pop_reg(emit, &vtype_item, REG_ARG_2);
-    emit_access_stack(emit, set_index, &vtype_set, REG_ARG_1);
-    assert(vtype_set == VTYPE_PYOBJ);
-    assert(vtype_item == VTYPE_PYOBJ);
-    emit_call(emit, MP_F_STORE_SET);
-    emit_post(emit);
 }
 #endif
 
@@ -2425,6 +2365,35 @@ STATIC void emit_native_build_slice(emit_t *emit, mp_uint_t n_args) {
     }
 }
 #endif
+
+STATIC void emit_native_store_comp(emit_t *emit, scope_kind_t kind, mp_uint_t collection_index) {
+    mp_fun_kind_t f;
+    if (kind == SCOPE_LIST_COMP) {
+        vtype_kind_t vtype_item;
+        emit_pre_pop_reg(emit, &vtype_item, REG_ARG_2);
+        assert(vtype_item == VTYPE_PYOBJ);
+        f = MP_F_LIST_APPEND;
+    #if MICROPY_PY_BUILTINS_SET
+    } else if (kind == SCOPE_SET_COMP) {
+        vtype_kind_t vtype_item;
+        emit_pre_pop_reg(emit, &vtype_item, REG_ARG_2);
+        assert(vtype_item == VTYPE_PYOBJ);
+        f = MP_F_STORE_SET;
+    #endif
+    } else {
+        // SCOPE_DICT_COMP
+        vtype_kind_t vtype_key, vtype_value;
+        emit_pre_pop_reg_reg(emit, &vtype_key, REG_ARG_2, &vtype_value, REG_ARG_3);
+        assert(vtype_key == VTYPE_PYOBJ);
+        assert(vtype_value == VTYPE_PYOBJ);
+        f = MP_F_STORE_MAP;
+    }
+    vtype_kind_t vtype_collection;
+    emit_access_stack(emit, collection_index, &vtype_collection, REG_ARG_1);
+    assert(vtype_collection == VTYPE_PYOBJ);
+    emit_call(emit, f);
+    emit_post(emit);
+}
 
 STATIC void emit_native_unpack_sequence(emit_t *emit, mp_uint_t n_args) {
     DEBUG_printf("unpack_sequence %d\n", n_args);
@@ -2674,17 +2643,15 @@ const emit_method_table_t EXPORT_FUN(method_table) = {
     emit_native_binary_op,
     emit_native_build_tuple,
     emit_native_build_list,
-    emit_native_list_append,
     emit_native_build_map,
     emit_native_store_map,
-    emit_native_map_add,
     #if MICROPY_PY_BUILTINS_SET
     emit_native_build_set,
-    emit_native_set_add,
     #endif
     #if MICROPY_PY_BUILTINS_SLICE
     emit_native_build_slice,
     #endif
+    emit_native_store_comp,
     emit_native_unpack_sequence,
     emit_native_unpack_ex,
     emit_native_make_function,

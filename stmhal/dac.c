@@ -171,6 +171,14 @@ STATIC mp_obj_t pyb_dac_init_helper(pyb_dac_obj_t *self, mp_uint_t n_args, const
     #endif
 
     // stop anything already going on
+    __DMA1_CLK_ENABLE();
+    DMA_HandleTypeDef DMA_Handle;
+    /* Get currently configured dma */
+    dma_init_handle(&DMA_Handle, self->tx_dma_descr, (void*)NULL);
+    // Need to deinit DMA first
+    DMA_Handle.State = HAL_DMA_STATE_READY;
+    HAL_DMA_DeInit(&DMA_Handle);
+
     HAL_DAC_Stop(&DAC_Handle, self->dac_channel);
     if ((self->dac_channel == DAC_CHANNEL_1 && DAC_Handle.DMA_Handle1 != NULL)
             || (self->dac_channel == DAC_CHANNEL_2 && DAC_Handle.DMA_Handle2 != NULL)) {
@@ -245,6 +253,21 @@ STATIC mp_obj_t pyb_dac_init(mp_uint_t n_args, const mp_obj_t *args, mp_map_t *k
     return pyb_dac_init_helper(args[0], n_args - 1, args + 1, kw_args);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_dac_init_obj, 1, pyb_dac_init);
+
+/// \method deinit()
+/// Turn off the DAC, enable other use of pin.
+STATIC mp_obj_t pyb_dac_deinit(mp_obj_t self_in) {
+    pyb_dac_obj_t *self = self_in;
+    if (self->dac_channel == DAC_CHANNEL_1) {
+        DAC_Handle.Instance->CR &= ~DAC_CR_EN1;
+        DAC_Handle.Instance->CR |= DAC_CR_BOFF1;
+    } else {
+        DAC_Handle.Instance->CR &= ~DAC_CR_EN2;
+        DAC_Handle.Instance->CR |= DAC_CR_BOFF2;
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(pyb_dac_deinit_obj, pyb_dac_deinit);
 
 #if defined(TIM6)
 /// \method noise(freq)
@@ -461,6 +484,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_dac_write_timed_obj, 1, pyb_dac_write_time
 STATIC const mp_map_elem_t pyb_dac_locals_dict_table[] = {
     // instance methods
     { MP_OBJ_NEW_QSTR(MP_QSTR_init), (mp_obj_t)&pyb_dac_init_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_deinit), (mp_obj_t)&pyb_dac_deinit_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_write), (mp_obj_t)&pyb_dac_write_obj },
     #if defined(TIM6)
     { MP_OBJ_NEW_QSTR(MP_QSTR_noise), (mp_obj_t)&pyb_dac_noise_obj },

@@ -142,6 +142,7 @@ APP_UTIL_SRC_S = $(addprefix util/,\
 APP_MAIN_SRC_C = \
 	main.c \
 	mptask.c \
+	mpthreadport.c \
 	serverstask.c
 	
 APP_LIB_SRC_C = $(addprefix lib/,\
@@ -153,7 +154,6 @@ APP_LIB_SRC_C = $(addprefix lib/,\
 	timeutils/timeutils.c \
 	utils/pyexec.c \
 	utils/pyhelp.c \
-	utils/printf.c \
 	)
 	
 APP_STM_SRC_C = $(addprefix stmhal/,\
@@ -162,8 +162,6 @@ APP_STM_SRC_C = $(addprefix stmhal/,\
 	import.c \
 	input.c \
 	irq.c \
-	lexerfatfs.c \
-	moduselect.c \
 	pybstdio.c \
 	)
 

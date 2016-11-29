@@ -162,11 +162,17 @@ static const DMA_InitTypeDef dma_init_struct_dac = {
 // DMA1 streams
 const dma_descr_t dma_I2C_1_RX = { DMA1_Stream0, DMA_CHANNEL_1, DMA_PERIPH_TO_MEMORY, dma_id_0,   &dma_init_struct_spi_i2c };
 const dma_descr_t dma_SPI_3_RX = { DMA1_Stream2, DMA_CHANNEL_0, DMA_PERIPH_TO_MEMORY, dma_id_2,   &dma_init_struct_spi_i2c };
+#if defined(MCU_SERIES_F7)
+const dma_descr_t dma_I2C_4_RX = { DMA1_Stream2, DMA_CHANNEL_2, DMA_PERIPH_TO_MEMORY, dma_id_2,   &dma_init_struct_spi_i2c };
+#endif
 const dma_descr_t dma_I2C_3_RX = { DMA1_Stream2, DMA_CHANNEL_3, DMA_PERIPH_TO_MEMORY, dma_id_2,   &dma_init_struct_spi_i2c };
 const dma_descr_t dma_I2C_2_RX = { DMA1_Stream2, DMA_CHANNEL_7, DMA_PERIPH_TO_MEMORY, dma_id_2,   &dma_init_struct_spi_i2c };
 const dma_descr_t dma_SPI_2_RX = { DMA1_Stream3, DMA_CHANNEL_0, DMA_PERIPH_TO_MEMORY, dma_id_3,   &dma_init_struct_spi_i2c };
 const dma_descr_t dma_SPI_2_TX = { DMA1_Stream4, DMA_CHANNEL_0, DMA_MEMORY_TO_PERIPH, dma_id_4,   &dma_init_struct_spi_i2c };
 const dma_descr_t dma_I2C_3_TX = { DMA1_Stream4, DMA_CHANNEL_3, DMA_MEMORY_TO_PERIPH, dma_id_4,   &dma_init_struct_spi_i2c };
+#if defined(MCU_SERIES_F7)
+const dma_descr_t dma_I2C_4_TX = { DMA1_Stream5, DMA_CHANNEL_2, DMA_MEMORY_TO_PERIPH, dma_id_5,   &dma_init_struct_spi_i2c };
+#endif
 #if defined(MICROPY_HW_ENABLE_DAC) && MICROPY_HW_ENABLE_DAC
 const dma_descr_t dma_DAC_1_TX = { DMA1_Stream5, DMA_CHANNEL_7, DMA_MEMORY_TO_PERIPH, dma_id_5,   &dma_init_struct_dac };
 const dma_descr_t dma_DAC_2_TX = { DMA1_Stream6, DMA_CHANNEL_7, DMA_MEMORY_TO_PERIPH, dma_id_6,   &dma_init_struct_dac };
@@ -267,8 +273,10 @@ const dma_descr_t dma_ADC_2_RX = { DMA2_Channel4, DMA_REQUEST_0, DMA_PERIPH_TO_M
 const dma_descr_t dma_DAC_1_TX = { DMA2_Channel4, DMA_REQUEST_3, DMA_MEMORY_TO_PERIPH, dma_id_10,  &dma_init_struct_dac };
 const dma_descr_t dma_SPI_1_TX = { DMA2_Channel4, DMA_REQUEST_4, DMA_MEMORY_TO_PERIPH, dma_id_10,  &dma_init_struct_spi_i2c };
 */
-#if MICROPY_HW_HAS_SDCARD
+#if defined(MICROPY_HW_HAS_SDCARD) && MICROPY_HW_HAS_SDCARD
+// defined twice as L4 HAL only needs one channel and can correctly switch direction but sdcard.c needs two channels
 const dma_descr_t dma_SDIO_0_TX= { DMA2_Channel4, DMA_REQUEST_7, DMA_MEMORY_TO_PERIPH, dma_id_10,  &dma_init_struct_sdio };
+const dma_descr_t dma_SDIO_0_RX= { DMA2_Channel4, DMA_REQUEST_7, DMA_PERIPH_TO_MEMORY, dma_id_10,  &dma_init_struct_sdio };
 #endif
 /* not preferred streams
 const dma_descr_t dma_ADC_3_RX = { DMA2_Channel5, DMA_REQUEST_0, DMA_PERIPH_TO_MEMORY, dma_id_11,  NULL };
@@ -428,11 +436,18 @@ void dma_init(DMA_HandleTypeDef *dma, const dma_descr_t *dma_descr, void *data){
             dma_last_sub_instance[dma_id] = sub_inst;
 
             // reset and configure DMA peripheral
-            if (HAL_DMA_GetState(dma) != HAL_DMA_STATE_RESET) {
-                HAL_DMA_DeInit(dma);
-            }
+            // (dma->State is set to HAL_DMA_STATE_RESET by memset above)
+            HAL_DMA_DeInit(dma);
             HAL_DMA_Init(dma);
             HAL_NVIC_SetPriority(dma_irqn[dma_id], IRQ_PRI_DMA, IRQ_SUBPRI_DMA);
+        } else {
+            // only necessary initialization
+            dma->State = HAL_DMA_STATE_READY;
+#if defined(MCU_SERIES_F4)
+            // calculate DMA base address and bitshift to be used in IRQ handler
+            extern uint32_t DMA_CalcBaseAndBitshift(DMA_HandleTypeDef *hdma);
+            DMA_CalcBaseAndBitshift(dma);
+#endif
         }
 
         HAL_NVIC_EnableIRQ(dma_irqn[dma_id]);

@@ -74,6 +74,7 @@ Constants
 .. data:: socket.IPPROTO_UDP
 .. data:: socket.IPPROTO_TCP
 .. only:: port_wipy
+
    .. data:: socket.IPPROTO_SEC
 
       protocol numbers
@@ -100,7 +101,7 @@ Methods
 
        Enable a server to accept connections. If backlog is specified, it must be at least 0 
        (if it's lower, it will be set to 0); and specifies the number of unaccepted connections
-       tha the system will allow before refusing new connections. If not specified, a default
+       that the system will allow before refusing new connections. If not specified, a default
        reasonable value is chosen.
 
     .. method:: socket.accept()
@@ -177,14 +178,10 @@ Methods
           Closing the file object returned by makefile() WILL close the
           original socket as well.
 
-    .. method:: socket.read(size)
+    .. method:: socket.read([size])
 
        Read up to size bytes from the socket. Return a bytes object. If ``size`` is not given, it
-       behaves just like ``socket.readall()``, see below.
-
-    .. method:: socket.readall()
-
-       Read all data available from the socket until ``EOF``. This function will not return until
+       reads all data available from the socket until ``EOF``; as such the method will not return until
        the socket is closed.
 
     .. method:: socket.readinto(buf[, nbytes])

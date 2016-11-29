@@ -5,7 +5,7 @@ MEMORY
     dport0_0_seg : org = 0x3ff00000, len = 0x10
     dram0_0_seg :  org = 0x3ffe8000, len = 0x14000
     iram1_0_seg :  org = 0x40100000, len = 0x8000
-    irom0_0_seg :  org = 0x40209000, len = 0x80000
+    irom0_0_seg :  org = 0x40209000, len = 0x87000
 }
 
 /* define the top of RAM */
@@ -20,7 +20,7 @@ PHDRS
     irom0_0_phdr PT_LOAD;
 }
 
-ENTRY(call_user_start)
+ENTRY(firmware_start)
 EXTERN(_DebugExceptionVector)
 EXTERN(_DoubleExceptionVector)
 EXTERN(_KernelExceptionVector)
@@ -88,9 +88,11 @@ SECTIONS
         *py/builtin*.o*(.literal* .text*)
         *py/compile.o*(.literal* .text*)
         *py/emit*.o*(.literal* .text*)
+        *py/persistentcode*.o*(.literal* .text*)
         *py/formatfloat.o*(.literal* .text*)
         *py/frozenmod.o*(.literal* .text*)
         *py/gc.o*(.literal* .text*)
+        *py/reader*.o*(.literal* .text*)
         *py/lexer*.o*(.literal* .text*)
         *py/malloc*.o*(.literal* .text*)
         *py/map*.o*(.literal* .text*)
@@ -121,6 +123,7 @@ SECTIONS
 
         *lib/fatfs/*.o*(.literal*, .text*)
         */libaxtls.a:(.literal*, .text*)
+        *lib/berkeley-db-1.xx/*.o(.literal*, .text*)
         *lib/libm/*.o*(.literal*, .text*)
         *lib/mp-readline/*.o(.literal*, .text*)
         *lib/netutils/*.o*(.literal*, .text*)
@@ -129,18 +132,24 @@ SECTIONS
 
         *stmhal/pybstdio.o(.literal*, .text*)
 
+        build/main.o(.literal* .text*)
         *gccollect.o(.literal* .text*)
         *gchelper.o(.literal* .text*)
+        *help.o(.literal* .text*)
         *lexerstr32.o(.literal* .text*)
         *utils.o(.literal* .text*)
         *modpyb.o(.literal*, .text*)
-        *modpybpin.o(.literal*, .text*)
-        *modpybpwm.o(.literal*, .text*)
-        *modpybrtc.o(.literal*, .text*)
-        *modpybadc.o(.literal*, .text*)
-        *modpybuart.o(.literal*, .text*)
+        *machine_pin.o(.literal*, .text*)
+        *machine_pwm.o(.literal*, .text*)
+        *machine_rtc.o(.literal*, .text*)
+        *machine_adc.o(.literal*, .text*)
+        *machine_uart.o(.literal*, .text*)
         *modpybi2c.o(.literal*, .text*)
-        *modpybspi.o(.literal*, .text*)
+        *modmachine.o(.literal*, .text*)
+        *machine_wdt.o(.literal*, .text*)
+        *machine_spi.o(.literal*, .text*)
+        *machine_hspi.o(.literal*, .text*)
+        *hspi.o(.literal*, .text*)
         *modesp.o(.literal* .text*)
         *modnetwork.o(.literal* .text*)
         *moduos.o(.literal* .text*)
@@ -195,7 +204,8 @@ SECTIONS
         *(.entry.text)
         *(.init.literal)
         *(.init)
-        *(.literal .text .literal.* .text.* .stub .gnu.warning .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
+        *(.literal .text .literal.* .text.* .iram0.literal .iram0.text .iram0.text.*.literal .iram0.text.*)
+        *(.stub .gnu.warning .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
         *(.fini.literal)
         *(.fini)
         *(.gnu.version)

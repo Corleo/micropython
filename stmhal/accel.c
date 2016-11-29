@@ -27,8 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include STM32_HAL_H
-
+#include "py/mphal.h"
 #include "py/nlr.h"
 #include "py/runtime.h"
 #include "pin.h"
@@ -58,15 +57,9 @@
 #define MMA_AXIS_SIGNED_VALUE(i) (((i) & 0x3f) | ((i) & 0x20 ? (~0x1f) : 0))
 
 void accel_init(void) {
-    GPIO_InitTypeDef GPIO_InitStructure;
-
     // PB5 is connected to AVDD; pull high to enable MMA accel device
-    MICROPY_HW_MMA_AVDD_PIN.gpio->BSRRH = MICROPY_HW_MMA_AVDD_PIN.pin_mask; // turn off AVDD
-    GPIO_InitStructure.Pin = MICROPY_HW_MMA_AVDD_PIN.pin_mask;
-    GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStructure.Speed = GPIO_SPEED_LOW;
-    GPIO_InitStructure.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(MICROPY_HW_MMA_AVDD_PIN.gpio, &GPIO_InitStructure);
+    mp_hal_pin_low(&MICROPY_HW_MMA_AVDD_PIN); // turn off AVDD
+    mp_hal_pin_output(&MICROPY_HW_MMA_AVDD_PIN);
 }
 
 STATIC void accel_start(void) {
@@ -76,15 +69,15 @@ STATIC void accel_start(void) {
     I2CHandle1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLED;
     I2CHandle1.Init.DutyCycle       = I2C_DUTYCYCLE_16_9;
     I2CHandle1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
-    I2CHandle1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLED;
+    I2CHandle1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
     I2CHandle1.Init.OwnAddress1     = PYB_I2C_MASTER_ADDRESS;
     I2CHandle1.Init.OwnAddress2     = 0xfe; // unused
     i2c_init(&I2CHandle1);
 
     // turn off AVDD, wait 30ms, turn on AVDD, wait 30ms again
-    MICROPY_HW_MMA_AVDD_PIN.gpio->BSRRH = MICROPY_HW_MMA_AVDD_PIN.pin_mask; // turn off
+    mp_hal_pin_low(&MICROPY_HW_MMA_AVDD_PIN); // turn off
     HAL_Delay(30);
-    MICROPY_HW_MMA_AVDD_PIN.gpio->BSRRL = MICROPY_HW_MMA_AVDD_PIN.pin_mask; // turn on
+    mp_hal_pin_high(&MICROPY_HW_MMA_AVDD_PIN); // turn on
     HAL_Delay(30);
 
     HAL_StatusTypeDef status;
