@@ -73,6 +73,7 @@
 #include "py/obj.h"
 #include "pendsv.h"
 #include "irq.h"
+#include "pybthread.h"
 #include "extint.h"
 #include "timer.h"
 #include "uart.h"
@@ -287,6 +288,13 @@ void SysTick_Handler(void) {
     if (DMA_IDLE_ENABLED() && DMA_IDLE_TICK(uwTick)) {
         dma_idle_handler(uwTick);
     }
+
+    #if MICROPY_PY_THREAD
+    // signal a thread switch at 4ms=250Hz
+    if (pyb_thread_enabled && (uwTick & 0x03) == 0x03) {
+        SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
+    }
+    #endif
 }
 
 /******************************************************************************/
@@ -676,6 +684,22 @@ void USART6_IRQHandler(void) {
     uart_irq_handler(6);
     IRQ_EXIT(USART6_IRQn);
 }
+
+#if defined(MICROPY_HW_UART7_TX)
+void UART7_IRQHandler(void) {
+    IRQ_ENTER(UART7_IRQn);
+    uart_irq_handler(7);
+    IRQ_EXIT(UART7_IRQn);
+}
+#endif
+
+#if defined(MICROPY_HW_UART8_TX)
+void UART8_IRQHandler(void) {
+    IRQ_ENTER(UART8_IRQn);
+    uart_irq_handler(8);
+    IRQ_EXIT(UART8_IRQn);
+}
+#endif
 
 #if MICROPY_HW_ENABLE_CAN
 void CAN1_RX0_IRQHandler(void) {
