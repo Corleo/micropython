@@ -16,9 +16,6 @@ endif
 # some code is performance bottleneck and compiled with other optimization options
 CSUPEROPT = -O3
 
-INC += -I../lib
-INC += -I../lib/netutils
-
 # this sets the config file for FatFs
 CFLAGS_MOD += -DFFCONF_H=\"lib/oofatfs/ffconf.h\"
 
@@ -28,7 +25,7 @@ ifeq ($(MICROPY_SSL_AXTLS),1)
 CFLAGS_MOD += -DMICROPY_SSL_AXTLS=1 -I../lib/axtls/ssl -I../lib/axtls/crypto -I../lib/axtls/config
 LDFLAGS_MOD += -Lbuild -laxtls
 else ifeq ($(MICROPY_SSL_MBEDTLS),1)
-# Can be overriden by ports which have "builtin" mbedTLS
+# Can be overridden by ports which have "builtin" mbedTLS
 MICROPY_SSL_MBEDTLS_INCLUDE ?= ../lib/mbedtls/include
 CFLAGS_MOD += -DMICROPY_SSL_MBEDTLS=1 -I$(MICROPY_SSL_MBEDTLS_INCLUDE)
 LDFLAGS_MOD += -L../lib/mbedtls/library -lmbedx509 -lmbedtls -lmbedcrypto
@@ -143,6 +140,7 @@ PY_O_BASENAME = \
 	persistentcode.o \
 	runtime.o \
 	runtime_utils.o \
+	scheduler.o \
 	nativeglue.o \
 	stackctrl.o \
 	argcheck.o \
@@ -281,6 +279,10 @@ $(HEADER_BUILD)/qstrdefs.generated.h: $(PY_QSTR_DEFS) $(QSTR_DEFS) $(QSTR_DEFS_C
 	$(ECHO) "GEN $@"
 	$(Q)cat $(PY_QSTR_DEFS) $(QSTR_DEFS) $(QSTR_DEFS_COLLECTED) | $(SED) 's/^Q(.*)/"&"/' | $(CPP) $(CFLAGS) - | $(SED) 's/^"\(Q(.*)\)"/\1/' > $(HEADER_BUILD)/qstrdefs.preprocessed.h
 	$(Q)$(PYTHON) $(PY_SRC)/makeqstrdata.py $(HEADER_BUILD)/qstrdefs.preprocessed.h > $@
+
+# Force nlr code to always be compiled with space-saving optimisation so
+# that the function preludes are of a minimal and predictable form.
+$(PY_BUILD)/nlr%.o: CFLAGS += -Os
 
 # emitters
 
