@@ -597,7 +597,7 @@ STATIC mp_obj_t pyb_uart_init_helper(pyb_uart_obj_t *self, mp_uint_t n_args, con
     } else if (bits == 9) {
         init->WordLength = UART_WORDLENGTH_9B;
     } else {
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "unsupported combination of bits and parity"));
+        mp_raise_ValueError("unsupported combination of bits and parity");
     }
 
     // stop bits
@@ -615,7 +615,7 @@ STATIC mp_obj_t pyb_uart_init_helper(pyb_uart_obj_t *self, mp_uint_t n_args, con
 
     // init UART (if it fails, it's because the port doesn't exist)
     if (!uart_init2(self)) {
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%d) does not exist", self->uart_id));
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%d) doesn't exist", self->uart_id));
     }
 
     // set timeout
@@ -656,7 +656,7 @@ STATIC mp_obj_t pyb_uart_init_helper(pyb_uart_obj_t *self, mp_uint_t n_args, con
         self->read_buf_len = args.read_buf_len.u_int + 1; // +1 to adjust for usable length of buffer
         self->read_buf = m_new(byte, self->read_buf_len << self->char_width);
         __HAL_UART_ENABLE_IT(&self->uart, UART_IT_RXNE);
-        HAL_NVIC_SetPriority(self->irqn, IRQ_PRI_UART, IRQ_SUBPRI_UART); 
+        HAL_NVIC_SetPriority(self->irqn, IRQ_PRI_UART, IRQ_SUBPRI_UART);
         HAL_NVIC_EnableIRQ(self->irqn);
     }
 
@@ -751,12 +751,12 @@ STATIC mp_obj_t pyb_uart_make_new(const mp_obj_type_t *type, size_t n_args, size
             uart_id = PYB_UART_6;
         #endif
         } else {
-            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%s) does not exist", port));
+            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%s) doesn't exist", port));
         }
     } else {
         uart_id = mp_obj_get_int(args[0]);
         if (!uart_exists(uart_id)) {
-            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%d) does not exist", uart_id));
+            nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "UART(%d) doesn't exist", uart_id));
         }
     }
 

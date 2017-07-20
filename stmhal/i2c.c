@@ -283,7 +283,7 @@ void i2c_init(I2C_HandleTypeDef *i2c) {
     const pyb_i2c_obj_t *self = &pyb_i2c_obj[i2c_unit - 1];
     dma_invalidate_channel(self->tx_dma_descr);
     dma_invalidate_channel(self->rx_dma_descr);
-    
+
     if (0) {
     #if defined(MICROPY_HW_I2C1_SCL)
     } else if (i2c->Instance == I2C1) {
@@ -626,14 +626,14 @@ STATIC mp_obj_t pyb_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_
         #endif
         } else {
             nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-                "I2C(%s) does not exist", port));
+                "I2C(%s) doesn't exist", port));
         }
     } else {
         i2c_id = mp_obj_get_int(args[0]);
         if (i2c_id < 1 || i2c_id > MP_ARRAY_SIZE(pyb_i2c_obj)
             || pyb_i2c_obj[i2c_id - 1].i2c == NULL) {
             nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-                "I2C(%d) does not exist", i2c_id));
+                "I2C(%d) doesn't exist", i2c_id));
         }
     }
 
