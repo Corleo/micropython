@@ -1,1 +1,0 @@
-/home/corleo/projetos/webesp/umqtt/simple.py
